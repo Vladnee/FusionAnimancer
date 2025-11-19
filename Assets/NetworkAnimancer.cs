@@ -16,7 +16,6 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 
 	private Parameter<Single>             _varMoveSpeed;
 	private PropertyReader<AnimancerData> _networkDataReader;
-	private Single                        _lastEvaluateTime;
 
 	private NetworkCharacterController _ncc;
 
@@ -27,7 +26,6 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 		Animancer.Graph.PauseGraph( );
 
 		_networkDataReader = GetPropertyReader<AnimancerData>( nameof(NetworkData) );
-		_lastEvaluateTime  = Object.RenderTime;
 
 		_varMoveSpeed = Animancer.Parameters.GetOrCreate<Single>( VarMoveSpeed );
 	}
@@ -42,7 +40,6 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 		_varMoveSpeed.Value = _ncc.Velocity.magnitude / _ncc.maxSpeed;
 
 		Animancer.Evaluate( Runner.DeltaTime );
-		_lastEvaluateTime = Object.RenderTime;
 	}
 
 	public void AfterAllTicks( Boolean resimulation, Int32 tickCount )
@@ -52,26 +49,13 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 
 	public override void Render( )
 	{
-		if( Object.IsProxy )
-		{
-			if( !TryGetSnapshotsBuffers( out var fromBuf, out var toBuf, out var alpha ) )
-				return;
+		if( !TryGetSnapshotsBuffers( out var fromBuf, out var toBuf, out var alpha ) )
+			return;
 
-			var from = _networkDataReader.Read( fromBuf );
-			var to   = _networkDataReader.Read( toBuf );
+		var from = _networkDataReader.Read( fromBuf );
+		var to   = _networkDataReader.Read( toBuf );
 
-			ApplyState( AnimancerData.Lerp( from, to, alpha ) );
-		}
-		else
-		{
-			var dt = Object.RenderTime - _lastEvaluateTime;
-
-			if( dt > 0 )
-			{
-				Animancer.Evaluate( dt );
-				_lastEvaluateTime = Object.RenderTime;
-			}
-		}
+		ApplyState( AnimancerData.Lerp( from, to, alpha ) );
 	}
 
 	private void SaveState( )
@@ -128,10 +112,8 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 
 			if( netLayerData.TargetWeight > 0 || netLayerData.Weight > 0 )
 			{
-				animancerLayer.Stop( );
-				animancerLayer.Weight = 1;
-
-				AnimancerState playingState = null;
+				foreach( var state in animancerLayer )
+					state.Weight = 0;
 
 				foreach( var stateData in netLayerData.States )
 				{
@@ -146,14 +128,14 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 
 					state.IsPlaying      = true;
 					state.NormalizedTime = stateData.NormalizedTime;
-					state.SetWeight( stateData.Weight );
+					state.Weight         = stateData.Weight;
 
-					if( netLayerData.CurrentStateTransitionIndex == stateData.TransitionIndex )
-						playingState = state;
+					if( netLayerData.RemainingStateFadeDuration <= 0 )
+						continue;
+
+					var targetWeight = netLayerData.CurrentStateTransitionIndex == stateData.TransitionIndex? 1: 0;
+					state.StartFade( targetWeight, netLayerData.RemainingStateFadeDuration );
 				}
-
-				if( playingState != null )
-					animancerLayer.Play( playingState, netLayerData.RemainingStateFadeDuration );
 			}
 
 			animancerLayer.Weight = netLayerData.Weight;
@@ -214,7 +196,7 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 		{
 			var result = new LayerData
 			{
-				CurrentStateTransitionIndex = b.CurrentStateTransitionIndex,
+				CurrentStateTransitionIndex = a.CurrentStateTransitionIndex,
 				Weight                      = Mathf.Lerp( a.Weight, b.Weight, t ),
 				TargetWeight                = Mathf.Lerp( a.TargetWeight, b.TargetWeight, t ),
 				RemainingFadeDuration       = Mathf.Lerp( a.RemainingFadeDuration, b.RemainingFadeDuration, t ),
@@ -250,7 +232,7 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 		{
 			var result = new StateData
 			{
-				TransitionIndex = b.TransitionIndex,
+				TransitionIndex = a.TransitionIndex,
 				NormalizedTime  = b.NormalizedTime >= a.NormalizedTime? Mathf.Lerp( a.NormalizedTime, b.NormalizedTime, t ): b.NormalizedTime,
 				Weight          = Mathf.Lerp( a.Weight, b.Weight, t )
 			};
