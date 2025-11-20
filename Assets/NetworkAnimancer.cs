@@ -24,6 +24,7 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 		_ncc = GetComponent<NetworkCharacterController>( );
 
 		Animancer.Graph.PauseGraph( );
+		Animancer.Graph.SetKeepChildrenConnected( true );
 
 		_networkDataReader = GetPropertyReader<AnimancerData>( nameof(NetworkData) );
 
@@ -126,7 +127,6 @@ public class NetworkAnimancer : NetworkBehaviour, IBeforeAllTicks, IAfterAllTick
 
 					var state = animancerLayer.GetOrCreateState( transition.Transition );
 
-					state.IsPlaying      = true;
 					state.NormalizedTime = stateData.NormalizedTime;
 					state.Weight         = stateData.Weight;
 
